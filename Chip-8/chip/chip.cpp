@@ -1,5 +1,7 @@
 #include "chip.hpp"
 
+#define PRINT_OPCODES 1
+
 namespace chip{
     Chip::Chip(int clock_hertz){
         if(clock_hertz == 0){
@@ -14,30 +16,52 @@ namespace chip{
     }
     
     std::string Chip::run(std::string path){
-        initCPU();
-        initKeyboard();
+        init_cpu();
+        init_keyboard();
         
-        if(!initDisplay()){
+        if(!init_display()){
             return "Error: Display could not be initialized.";
         }
         
-        if(!loadGame(path)){
+        if(!load_game(path)){
             return "Error: ROM could not be loaded.";
         }
         
-        int pc;
-        while(true){
-            pc = executeCycle();
-            if(pc != -1){
+        int pc = -1;
+        bool running = true;
+        while(running){
+            auto start = std::chrono::steady_clock::now();
+            
+            
+            if(!update_keys()){
+                running = false;
                 break;
             }
             
-            if(!updateDisplay()){
+            pc = execute_cycle();
+            if(pc != -1){
+                running = false;
                 break;
+            }
+            
+            long us = pow(10, 6) / clock_hertz;
+            std::this_thread::sleep_for(std::chrono::microseconds(us));
+            
+            auto end = std::chrono::steady_clock::now();
+            
+            elapsed_time += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+            
+            long max = (1 / 60.0) * pow(10, 9);
+            
+            if(elapsed_time > max){
+                while(elapsed_time > max){
+                    elapsed_time -= max;
+                    update_timers();
+                }
             }
         }
         
-        cleanUpDisplay();
+        clean_up_display();
         
         if(pc != -1){
             std::stringstream stream;
@@ -50,7 +74,7 @@ namespace chip{
         }
     }
     
-    void Chip::initCPU(){
+    void Chip::init_cpu(){
         for(int i = 0; i < sizeof(memory); i++){
             memory[i] = 0;
         }
@@ -72,7 +96,7 @@ namespace chip{
         }
     }
     
-    bool Chip::loadGame(std::string fileName){
+    bool Chip::load_game(std::string fileName){
         std::ifstream f(fileName); //taking file as inputstream
         std::string str;
         if(!f) {
@@ -94,7 +118,7 @@ namespace chip{
         return true;
     }
     
-    int Chip::executeCycle(){
+    int Chip::execute_cycle(){
         //fetch opcode
         const unsigned short opcode = (memory[pc] << 8) | memory[pc + 1]; //each opcode is 2 bytes, so merge two ajdacent spots in memory
         
@@ -112,7 +136,7 @@ namespace chip{
                 switch(nnn){
                     case 0x0E0:{
                         to_print = "Clear the display.";
-                        clearDisplay();
+                        clear_display();
                         break;
                     }
                         
@@ -319,12 +343,11 @@ namespace chip{
                 
                 const unsigned char s_x = v[x];
                 
-                //TODO: not sure if wraparound is working correctly
                 for(int i = 0; i < n; i++){
                     unsigned char val = memory[I + i];
                     
                     unsigned char x_coord = s_x;
-                    unsigned char y_coord = v[y] + i;
+                    unsigned char y_coord = (v[y] + i) % 32;
                     
                     for(int j = 0; j < 8; j++){
                         bool pixel = val & 0x80;
@@ -336,10 +359,12 @@ namespace chip{
                         
                         val <<= 1;
                         
-                        x_coord++;
-                        
+                        x_coord = (x_coord + 1) % 64;
                     }
                 }
+                
+                update_display();
+                
                 break;
             }
                 
@@ -450,7 +475,6 @@ namespace chip{
                         to_print = "unsupported opcode.";
                         return pc;
                     }
-                        
                 }
                 break;
             }
@@ -461,25 +485,26 @@ namespace chip{
             }
         }
         
-#if DEBUG == 1
+#if PRINT_OPCODES == 1
         std::cout << std::hex << opcode << " " << to_print << std::endl;
 #endif
         
         pc += 2;
-        
+        return -1;
+    }
+    
+    void Chip::update_timers(){
         if(delay_timer > 0){
             delay_timer--;
         }
         if(sound_timer > 0){
             sound_timer--;
         }
-        
-        return -1;
     }
     
     
-    bool Chip::initDisplay(){
-        clearDisplay();
+    bool Chip::init_display(){
+        clear_display();
         
         SDL_Init(SDL_INIT_EVERYTHING);
         window = SDL_CreateWindow("Chip8 Emulator", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 64 * pixel_size, 32 * pixel_size, SDL_WINDOW_SHOWN);
@@ -492,15 +517,15 @@ namespace chip{
         return true;
     }
     
-    void Chip::clearDisplay(){
+    void Chip::clear_display(){
         for(int i = 0; i < sizeof(display); i++){
             display[i] = false;
         }
     }
     
-    bool Chip::updateDisplay(){
+    bool Chip::update_keys(){
         SDL_Event e;
-        while(SDL_PollEvent(&e)){
+        if(SDL_PollEvent(&e)){
             if (e.type == SDL_QUIT){
                 return false;
             }
@@ -519,7 +544,10 @@ namespace chip{
                 }
             }
         }
-        
+        return true;
+    }
+    
+    void Chip::update_display(){
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
         
@@ -533,24 +561,22 @@ namespace chip{
                     rect.w = pixel_size;
                     rect.h = pixel_size;
                     
-                    SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
                     SDL_RenderFillRect(renderer, &rect);
                 }
             }
         }
         
         SDL_RenderPresent(renderer);
-        SDL_Delay(1000 / clock_hertz);
-        return true;
     }
     
-    void Chip::cleanUpDisplay(){
+    void Chip::clean_up_display(){
         SDL_DestroyWindow(window);
         SDL_DestroyRenderer(renderer);
         SDL_Quit();
     }
     
-    void Chip::initKeyboard(){
+    void Chip::init_keyboard(){
         for(int i = 0; i < sizeof(keys); i++){
             keys[i] = 0;
         }

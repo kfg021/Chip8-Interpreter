@@ -5,6 +5,8 @@
 #include<fstream>
 #include<sstream>
 #include<SDL2/SDL.h>
+#include<thread>
+#include<chrono>
 
 namespace chip{
     class Chip{
@@ -14,9 +16,9 @@ namespace chip{
         ~Chip();
         std::string run(std::string game);
         
-    private:
+    private: 
     //cpu stuff
-        const int default_clock_hertz = 400;
+        const int default_clock_hertz = 500;
         int clock_hertz;
         const unsigned char font_set[5 * 16] = {
             0xF0, 0x90, 0x90, 0x90, 0xF0, //0
@@ -49,9 +51,10 @@ namespace chip{
         unsigned int delay_timer;
         unsigned int sound_timer;
         
-        void initCPU();
-        bool loadGame(std::string fileName);
-        int executeCycle();
+        void init_cpu();
+        bool load_game(std::string fileName);
+        int execute_cycle();
+        void update_timers();
         
     // display stuff
         const int pixel_size = 20;
@@ -60,18 +63,24 @@ namespace chip{
         
         bool display[64 * 32];
         
-        bool initDisplay();
-        void clearDisplay();
-        bool updateDisplay();
-        void cleanUpDisplay();
+        bool init_display();
+        void clear_display();
+        void update_display();
+        void clean_up_display();
         
     //keyboard stuff
         const SDL_Keycode keycodes[16] = {
-            SDLK_x, SDLK_1, SDLK_2, SDLK_3, SDLK_q, SDLK_w, SDLK_e, SDLK_a, SDLK_s, SDLK_z, SDLK_c, SDLK_4, SDLK_r, SDLK_f, SDLK_v
+            SDLK_x, SDLK_1, SDLK_2, SDLK_3, SDLK_q, SDLK_w, SDLK_e, SDLK_a, SDLK_s, SDLK_d, SDLK_z, SDLK_c, SDLK_4, SDLK_r, SDLK_f, SDLK_v
         };
         
         bool keys[16];
-        void initKeyboard();
+        void init_keyboard();
+        
+        long elapsed_time = 0;
+        
+        bool update_keys();
+        
+    //TODO: implement sound
     };
 }
 
